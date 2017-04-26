@@ -8,7 +8,15 @@
  *
  * @package theme-name
  */
-
+require_once __DIR__ . '/vendor/autoload.php';
+define( 'APPLICATION_NAME', 'Google Calendar API PHP Quickstart' );
+define( 'CLIENT_SECRET_PATH', __DIR__ . '/client_secret.json' );
+// If modifying these scopes, delete your previously saved credentials
+// at ~/.credentials/calendar-php-quickstart.json!
+define( 'SCOPES', implode(' ', array( // on utilise que le service Calendrier la google api.
+	Google_Service_Calendar::CALENDAR,
+	)
+));
 /**
  * La creation et suppression d'évenement google agenda depuis les action performer sur task manager.
  *
@@ -46,6 +54,41 @@ class Place_Holder {
 				<th><label for="gmail_adress"><?php esc_html_e( 'Adresse Gmail' ); ?></label></th>
 				<td><input type="text" name="gmail_adress" id="gmail_adress" value="<?php if ( isset( $gmail_adress ) ) { echo esc_attr( $gmail_adress ); } ?>" class="regular-text" /></td>
 			</tr>
+			<?php
+			$check_user_rights = get_user_meta( $profileuser->ID, 'gmail_auth', true );
+			if ( 'true' === $check_user_rights ) {
+				?>
+				<tr>
+					<th><label for="calendar_id"><?php esc_html_e( 'Agenda' ); ?></label></th>
+					<td><select name='calendar_id'>
+							<?php
+							if ( ! isset( $client ) ) {
+								$client = init_client( $profileuser->ID );
+							} // End if().
+							$service = new Google_Service_Calendar( $client );
+							$calendar_check = get_user_meta( $profileuser->ID, 'calendar_id', true );
+							$calendar_list  = $service->calendarList->listCalendarList(); // WPCS: XSS is ok.
+							while ( true ) {
+							    foreach ( $calendar_list->getItems() as $calendar_list_entry ) {
+							        ?>
+									<option value='<?php echo esc_html( $calendar_list_entry->id ); ?>' <?php if ( $calendar_list_entry->id === $calendar_check ) { echo 'selected'; } ?> > <?php echo esc_html( $calendar_list_entry->getSummary() ); ?> </option>
+								<?php
+							    }
+							    $page_token = $calendar_list->getNextPageToken();
+							    if ( $page_token ) {
+							        $opt_params = array(
+										'pageToken' => $page_token,
+									);
+							        $calendar_list = $service->calendar_list->listCalendarList( $opt_params );
+							    } else {
+							        break;
+							    }
+							}
+							?>
+						</select></td>
+			<?php
+			} // End if().
+			?>
 		</table>
 		<?php
 	}
@@ -59,6 +102,7 @@ class Place_Holder {
 	public function update_profile_fields( $user_id ) {
 		$auth = get_user_meta( $user_id, 'gmail_auth', true );
 		$mail = get_user_meta( $user_id, 'gmail_adress', true );
+		$calendar_id = get_user_meta( $user_id, 'calendar_id', true );
 		if ( isset( $_POST['gmail_adress'] ) ) {
 			wp_verify_nonce( $_POST['gmail_adress'] );
 			if ( $mail !== $_POST['gmail_adress'] ) {
@@ -67,6 +111,12 @@ class Place_Holder {
 			}
 			if ( ! empty( $_POST['gmail_adress'] ) ) {
 				update_user_meta( $user_id, 'gmail_adress', sanitize_text_field( $_POST['gmail_adress'] ) );
+			}
+		}
+		if ( isset( $_POST['calendar_id'] ) ) {
+			wp_verify_nonce( $_POST['calendar_id'] );
+			if ( $calendar_id !== $_POST['calendar_id'] ) {
+				update_user_meta( $user_id, 'calendar_id', sanitize_text_field( $_POST['calendar_id'] ) );
 			}
 		}
 	}
@@ -80,7 +130,7 @@ class Place_Holder {
 		$current_user = wp_get_current_user();
 		$user_token = get_user_meta( $current_user->ID, 'calendar_token', true );
 		$auth = get_user_meta( $current_user->ID, 'gmail_auth', true );
-		$client = init_client();
+		$client = init_client( $current_user->ID );
 		$redirect_uri = admin_url(); // L'url sur laquel l'utilisateur va être rediriger apres avoir autoriser l'application.
 		$client->setRedirectUri( $redirect_uri );
 		if ( isset( $_GET['code'] ) ) { // le code recuperer apres la redirection
@@ -125,69 +175,86 @@ class Place_Holder {
 		 $current_user = wp_get_current_user();
 		 $auth = get_user_meta( $current_user->ID, 'gmail_auth', 'true' );
 		if ( 'true' === $auth ) {
-			$code = get_user_meta( $current_user->ID, 'calendar_token', 'true' );
-			$user_mail = get_user_meta( $current_user->ID, 'gmail_adress', 'true' );
-			$client = init_client();
 			$date_start = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' ); // créer les dates, en partant de la variable $due_date puis initialise le temps à 00:00:00 (heures, minutes, secondes).
 			$date_start->setTime( 7, 0 ); // Change l'heure a 07:00:00 (? cela permet d'avoir les taches qui commence a 9h ?).
 			$date_end = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' );
 			$date_end->setTime( 7, 0 );
 			$date_end->add( new DateInterval( 'PT' . $estimated_time . 'M' ) ); // ajoute les minutes prévu a la date de fin.
-			$description = admin_url() . 'admin.php?page=wpeomtm-dashboard&term=' . $task_id; // crée une url pour que l'utilisateur puisse retrouver sa tache depuis son agenda.
-			$service = new Google_Service_Calendar( $client ); // initialise le service depuis l'object client créer plûtot
+			$description = '<a href="' . admin_url() . 'admin.php?page=wpeomtm-dashboard&term=' . $task_id . '">Regarder votre tache ici!</a>'; // crée une url pour que l'utilisateur puisse retrouver sa tache depuis son agenda.
 			/* création d'un compteur (0) pour pouvoir compter les attendants qui on authoriser leur g-mail,
 			de cette façon on n'aura pas des paramettre vide dans la variable data. */
-			$count = 0;
-			$data = array();
+			$count_attendee = 0;
+			$count_event = 0;
+			$data_attendee = array();
+			$data_event = array();
+			$data_event[] = $current_user->ID;
 			foreach ( $task_attendees as $id ) {
 				$check_mail = get_user_meta( $id, 'gmail_adress', true );
+				$check_auth = get_user_meta( $id, 'gmail_auth', true );
 				if ( ! empty( $check_mail ) ) {
-							$mail = $check_mail;
-							$count++;
-							$data[] = $mail;
+					if ( 'true' === $check_auth ) {
+							$data_event[] = $id;
+					} else {
+						$mail = $check_mail;
+						$count_attendee++;
+						$data_attendee[] = $mail;
+					} // End if().
 				} // End if().
+				$user_info = get_userdata( $id );
+				$description .= ', ' . $user_info->user_login;
 			}
+			$description .= '.';
 			/* création de l'évenement on ajoute tout les élements en array sauf les attendants.
-			 les reminders peuvent être enlever si ils ne sont pas nécessaire. */
-			$event = new Google_Service_Calendar_Event(array(
-				'summary' => "#$task_id    $task->title", // task
-				'location' => '', // optional?
-				'description' => '<a href="' . $description . '">Check out your task here</a>', // point
-				'start' => array(								// task beginning!
-				  'dateTime' => $date_start->format( DateTime::ISO8601 ),
-				),
-				'end' => array(								// task planned ending!
-				  'dateTime' => $date_end->format( DateTime::ISO8601 ),
-				),
-				'reminders' => array(							// optional?
-				  'useDefault' => false,
-				  'overrides' => array(
-					array(
-						   'method' => 'email',
-						   'minutes' => 24 * 60,
-						 ),
-					array(
-						   'method' => 'popup',
-						   'minutes' => 1,
-						 ),
-				  ),
-				),
-			));
-			/* on lance une boucle qui va de 0 au nombre d'adresses mail des attendants,
-			puis on crée une variable de variable qui contient le numéro de l'attendant ($i),
-			enfin on utilise la fonction setEmail de la classe objet Google_Service_Calendar pour initialiser chaque email que l'on ajoute en variable */
-			$attendees = array();
-			for ( $i = 0 ; $i < $count; $i++ ) {
-				${'attendees_n' . $i} = new Google_Service_Calendar_EventAttendee();
-				${'attendees_n' . $i}->setEmail( $data[ $i ] );
-				$attendees[] = ${'attendees_n' . $i};
-			}
-				$event->attendees = $attendees;
-				$calendar_id = 'primary'; // We then display that the event was succesfully created and give a link for the user to see. Only used for testing but can be implemented in the plugin!
+			 les reminders peuvent être enlever si ils ne sont pas nécessaire.
+			 On crée un evenement par personne qui participe à la tache et qui est authentifié, le reste sont ajouter comme attendants à la personne qui créer la tache.*/
+			foreach ( $data_event as $id ) {
+				$client = init_client( $id );
+				$service = new Google_Service_Calendar( $client ); // initialise le service depuis l'object client créer plûtot.
+				$event = new Google_Service_Calendar_Event(array(
+					'summary' => "#$task_id    $task->title", // task
+					'location' => '', // optional?
+					'description' => $description, // point
+					'start' => array(								// task beginning!
+					  'dateTime' => $date_start->format( DateTime::ISO8601 ),
+					),
+					'end' => array(								// task planned ending!
+					  'dateTime' => $date_end->format( DateTime::ISO8601 ),
+					),
+					'reminders' => array(							// optional?
+					  'useDefault' => false,
+					  'overrides' => array(
+						array(
+							   'method' => 'email',
+							   'minutes' => 24 * 60,
+							 ),
+						array(
+							   'method' => 'popup',
+							   'minutes' => 1,
+							 ),
+					  ),
+					),
+				));
+				/* on lance une boucle qui va de 0 au nombre d'adresses mail des attendants, ceux qui n'ont pas authentifié leur gmail,
+				puis on crée une variable de variable qui contient le numéro de l'attendant ($i),
+				enfin on utilise la fonction setEmail de la classe objet Google_Service_Calendar pour initialiser chaque email que l'on ajoute en variable */
+				if ( $current_user->ID === $id ) {
+					$attendees = array();
+					for ( $i = 0 ; $i < $count_attendee; $i++ ) {
+						${'attendees_n' . $i} = new Google_Service_Calendar_EventAttendee();
+						${'attendees_n' . $i}->setEmail( $data_attendee[ $i ] );
+						$attendees[] = ${'attendees_n' . $i};
+					} // End for().
+					$event->attendees = $attendees;
+				} // End if().
+				$calendar_id = get_user_meta( $id, 'calendar_id', true ); // We then display that the event was succesfully created and give a link for the user to see. Only used for testing but can be implemented in the plugin!
+				if ( empty( $calendar_id ) ) {
+					$calendar_id = 'primary';
+				} // End if().
 				$event = $service->events->insert( $calendar_id, $event );
 				$event_id = $event->getId();
-				$history_time_created->google_event_id = $event_id;
-				\task_manager\History_Time_Class::g()->update( $history_time_created ); // On envoie l'id de l'evenement sur history time pour qu'ils soit entrer dans la base de données.
+				$history_time_created->google_event_id[ $id ] = $event_id;
+			} // End foreach().
+			\task_manager\History_Time_Class::g()->update( $history_time_created ); // On envoie l'id de l'evenement sur history time pour qu'ils soit entrer dans la base de données.
 		} // End if().
 
 	}
@@ -202,12 +269,17 @@ class Place_Holder {
 		$history_time = \task_manager\History_Time_Class::g()->get( array(
 			'id' => $history_time_id,
 		), true ); // récupere l'objet history_time depuis la classe qui existe dans le plugin task manager.
-		$event_id = $history_time->google_event_id; // l'id de l'evenement qu'on a stocker dans la base de données de history_time.
-		$current_user = wp_get_current_user();
-		$user_mail = get_user_meta( $current_user->ID, 'gmail_adress', 'true' );
-		$client = init_client();
-		$service = new Google_Service_Calendar( $client );
-		$service->events->delete( 'primary', $event_id ); // supprime les évenement.
+		$google_event_id = $history_time->google_event_id; // l'id de l'evenement qu'on a stocker dans la base de données de history_time.
+		foreach ( $google_event_id as $user_id => $event_id ) {
+			$user_mail = get_user_meta( $user_id , 'gmail_adress', true );
+			$calendar_id = get_user_meta( $user_id, 'calendar_id', true );
+			if ( empty( $calendar_id ) ) {
+				$calendar_id = 'primary';
+			}
+			$client = init_client( $user_id );
+			$service = new Google_Service_Calendar( $client );
+			$service->events->delete( $calendar_id, $event_id ); // supprime les évenement.
+		}
 	}
 }
 
