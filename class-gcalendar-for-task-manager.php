@@ -9,7 +9,7 @@
  * @package theme-name
  */
 require_once __DIR__ . '/vendor/autoload.php';
-define( 'APPLICATION_NAME', 'Google Calendar API PHP Quickstart' );
+define( 'APPLICATION_NAME', 'Google Calendar API for Task Manager' );
 define( 'CLIENT_SECRET_PATH', __DIR__ . '/client_secret.json' );
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/calendar-php-quickstart.json!
@@ -67,7 +67,7 @@ class GCalendar_For_Task_Manager {
 							} // End if().
 							$service = new Google_Service_Calendar( $client );
 							$calendar_check = get_user_meta( $profileuser->ID, 'calendar_id', true );
-							$calendar_list  = $service->calendarList->listCalendarList(); // WPCS: XSS is ok.
+							$calendar_list  = $service->calendarList->listCalendarList(); // WPCS: tax_query ok.
 							while ( true ) {
 							    foreach ( $calendar_list->getItems() as $calendar_list_entry ) {
 							        ?>
@@ -175,7 +175,7 @@ class GCalendar_For_Task_Manager {
 		 $current_user = wp_get_current_user();
 		 $auth = get_user_meta( $current_user->ID, 'gmail_auth', 'true' );
 		if ( 'true' === $auth ) {
-			if ( isset( $due_date ) && ( ! empty( $due_date ) ) ) {
+			if ( isset( $due_date ) && ( ! empty( $due_date ) ) ) { // On verifie que la date a été mise, sinon on met 'aujourd'hui' comme date.
 				$date_start = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' ); // créer les dates, en partant de la variable $due_date puis initialise le temps à 00:00:00 (heures, minutes, secondes).
 				$date_start->setTime( 7, 0 ); // Change l'heure a 07:00:00 (? cela permet d'avoir les taches qui commence a 9h ?).
 				$date_end = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' );
@@ -191,14 +191,13 @@ class GCalendar_For_Task_Manager {
 			/* création d'un compteur (0) pour pouvoir compter les attendants qui on authoriser leur g-mail,
 			de cette façon on n'aura pas des paramettre vide dans la variable data. */
 			$count_attendee = 0;
-			$count_event = 0;
 			$data_attendee = array();
 			$data_event = array();
 			$data_event[] = $current_user->ID;
 			foreach ( $task_attendees as $id ) {
 				$check_mail = get_user_meta( $id, 'gmail_adress', true );
 				$check_auth = get_user_meta( $id, 'gmail_auth', true );
-				if ( ! empty( $check_mail ) ) {
+				if ( ! empty( $check_mail ) && ( $id !== $current_user->ID ) ) {
 					if ( 'true' === $check_auth ) {
 							$data_event[] = $id;
 					} else {
@@ -207,10 +206,7 @@ class GCalendar_For_Task_Manager {
 						$data_attendee[] = $mail;
 					} // End if().
 				} // End if().
-				$user_info = get_userdata( $id );
-				$description .= ', ' . $user_info->user_login;
 			}
-			$description .= '.';
 			/* création de l'évenement on ajoute tout les élements en array sauf les attendants.
 			 les reminders peuvent être enlever si ils ne sont pas nécessaire.
 			 On crée un evenement par personne qui participe à la tache et qui est authentifié, le reste sont ajouter comme attendants à la personne qui créer la tache.*/
