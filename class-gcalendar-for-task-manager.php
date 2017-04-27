@@ -2,11 +2,9 @@
 /**
  * Plugin Name: GCalendar for Task Manager
  * Description: Task manager add-on, link all your tasks to your google calendar with this plugin
- * Version: 0.1
+ * Version: 1.0
  * Author: Bactery
  * License: GPL2
- *
- * @package theme-name
  */
 require_once __DIR__ . '/vendor/autoload.php';
 define( 'APPLICATION_NAME', 'Google Calendar API for Task Manager' );
@@ -211,6 +209,7 @@ class GCalendar_For_Task_Manager {
 			 les reminders peuvent être enlever si ils ne sont pas nécessaire.
 			 On crée un evenement par personne qui participe à la tache et qui est authentifié, le reste sont ajouter comme attendants à la personne qui créer la tache.*/
 			foreach ( $data_event as $id ) {
+				$user_mail = get_user_meta( $id, 'gmail_adress', true );
 				$client = init_client( $id );
 				$service = new Google_Service_Calendar( $client ); // initialise le service depuis l'object client créer plûtot.
 				$event = new Google_Service_Calendar_Event(array(
@@ -223,19 +222,19 @@ class GCalendar_For_Task_Manager {
 					'end' => array(								// task planned ending!
 					  'dateTime' => $date_end->format( DateTime::ISO8601 ),
 					),
-					'reminders' => array(							// optional?
-					  'useDefault' => false,
-					  'overrides' => array(
-						array(
-							   'method' => 'email',
-							   'minutes' => 24 * 60,
-							 ),
-						array(
-							   'method' => 'popup',
-							   'minutes' => 1,
-							 ),
-					  ),
-					),
+					// 'reminders' => array(							// optional?
+					//   'useDefault' => false,
+					//   'overrides' => array(
+					// 	array(
+					// 		   'method' => 'email',
+					// 		   'minutes' => 24 * 60,
+					// 		 ),
+					// 	array(
+					// 		   'method' => 'popup',
+					// 		   'minutes' => 1,
+					// 		 ),
+					//   ),
+					// ),
 				));
 				/* on lance une boucle qui va de 0 au nombre d'adresses mail des attendants, ceux qui n'ont pas authentifié leur gmail,
 				puis on crée une variable de variable qui contient le numéro de l'attendant ($i),
@@ -250,12 +249,24 @@ class GCalendar_For_Task_Manager {
 					$event->attendees = $attendees;
 				} // End if().
 				$calendar_id = get_user_meta( $id, 'calendar_id', true ); // We then display that the event was succesfully created and give a link for the user to see. Only used for testing but can be implemented in the plugin!
-				if ( empty( $calendar_id ) ) {
+				$calendar_check = $service->calendarList->listCalendarList();
+				$count_calendar = 0;
+				foreach ( $calendar_check->getItems() as $calendar_get_id ) {
+					if ( $calendar_id === $calendar_get_id->getId() ) {
+						$count_calendar = 1;
+					}
+				}
+				if ( empty( $calendar_id ) || ( 1 !== $count_calendar ) ) {
 					$calendar_id = 'primary';
-				} // End if().
+					update_user_meta( $id, 'calendar_id', 'primary' );
+				}
+				try {
 				$event = $service->events->insert( $calendar_id, $event );
 				$event_id = $event->getId();
 				$history_time_created->google_event_id[ $id ] = $event_id;
+				} catch( Exception $e ) {
+				echo "<script>alert('didn't work');</script>";
+				}
 			} // End foreach().
 			\task_manager\History_Time_Class::g()->update( $history_time_created ); // On envoie l'id de l'evenement sur history time pour qu'ils soit entrer dans la base de données.
 		} // End if().
@@ -275,15 +286,31 @@ class GCalendar_For_Task_Manager {
 		$google_event_id = $history_time->google_event_id; // l'id de l'evenement qu'on a stocker dans la base de données de history_time.
 		foreach ( $google_event_id as $user_id => $event_id ) {
 			$user_mail = get_user_meta( $user_id , 'gmail_adress', true );
-			$calendar_id = get_user_meta( $user_id, 'calendar_id', true );
-			if ( empty( $calendar_id ) ) {
-				$calendar_id = 'primary';
-			}
 			$client = init_client( $user_id );
 			$service = new Google_Service_Calendar( $client );
-			$event = $service->events->get( $calendar_id , $event_id );
-			if ( ! empty( $event ) ) {
-				$service->events->delete( $calendar_id, $event_id ); // supprime les évenement.
+			$calendar_id = get_user_meta( $user_id, 'calendar_id', true );
+			$calendar_check = $service->calendarList->listCalendarList();
+			foreach ( $calendar_check->getItems() as $calendar_get_id ) {
+				if ( $calendar_id === $calendar_get_id->getId() ) {
+					try {
+					 	$event = $service->events->get( $calendar_id , $event_id );
+						if ( ! empty( $event ) ) {
+						 	$service->events->delete( $calendar_id, $event_id );
+						}
+					} catch ( Exception $e ) {
+						break;
+					}
+				} elseif ( $calendar_id === $user_mail ) {
+					$calendar_id = 'primary';
+					try {
+					 	$event = $service->events->get( $calendar_id , $event_id );
+						if ( ! empty( $event ) ) {
+						 	$service->events->delete( $calendar_id, $event_id );
+						}
+					} catch ( Exception $e ) {
+						break;
+					}
+				}
 			}
 		}
 	}
