@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Place Holder
+ * Plugin Name: GCalendar for Task Manager
  * Description: Task manager add-on, link all your tasks to your google calendar with toto plugin!
  * Version: 0.1
  * Author: Bactery
@@ -22,7 +22,7 @@ define( 'SCOPES', implode(' ', array( // on utilise que le service Calendrier la
  *
  * @method __construct
  */
-class Place_Holder {
+class GCalendar_For_Task_Manager {
 	/**
 	 * Initialise les notices admin pour activer l'adresse qui est ajouter le champ dans profile utilisateur, puis est relié a task manager pour pouvoir créer et supprimer des evenement sur l'agenda google.
 	 *
@@ -283,4 +283,4 @@ class Place_Holder {
 	}
 }
 
-new Place_Holder();
+new Gcalendar_For_Task_Manager();
