@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: GCalendar for Task Manager
- * Description: Task manager add-on, link all your tasks to your google calendar with toto plugin!
+ * Description: Task manager add-on, link all your tasks to your google calendar with this plugin
  * Version: 0.1
  * Author: Bactery
  * License: GPL2
@@ -175,10 +175,17 @@ class GCalendar_For_Task_Manager {
 		 $current_user = wp_get_current_user();
 		 $auth = get_user_meta( $current_user->ID, 'gmail_auth', 'true' );
 		if ( 'true' === $auth ) {
-			$date_start = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' ); // créer les dates, en partant de la variable $due_date puis initialise le temps à 00:00:00 (heures, minutes, secondes).
-			$date_start->setTime( 7, 0 ); // Change l'heure a 07:00:00 (? cela permet d'avoir les taches qui commence a 9h ?).
-			$date_end = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' );
-			$date_end->setTime( 7, 0 );
+			if ( isset( $due_date ) && ( ! empty( $due_date ) ) ) {
+				$date_start = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' ); // créer les dates, en partant de la variable $due_date puis initialise le temps à 00:00:00 (heures, minutes, secondes).
+				$date_start->setTime( 7, 0 ); // Change l'heure a 07:00:00 (? cela permet d'avoir les taches qui commence a 9h ?).
+				$date_end = DateTime::createFromFormat( 'd/m/Y H:i:s', $due_date . ' 00:00:00' );
+				$date_end->setTime( 7, 0 );
+			} else {
+				$date_start = new DateTime( 'NOW' );
+				$date_start->setTime( 7, 0 ); // Change l'heure a 07:00:00 (? cela permet d'avoir les taches qui commence a 9h ?).
+				$date_end = new DateTime( 'NOW' );
+				$date_end->setTime( 7, 0 );
+			}
 			$date_end->add( new DateInterval( 'PT' . $estimated_time . 'M' ) ); // ajoute les minutes prévu a la date de fin.
 			$description = '<a href="' . admin_url() . 'admin.php?page=wpeomtm-dashboard&term=' . $task_id . '">Regarder votre tache ici!</a>'; // crée une url pour que l'utilisateur puisse retrouver sa tache depuis son agenda.
 			/* création d'un compteur (0) pour pouvoir compter les attendants qui on authoriser leur g-mail,
@@ -278,7 +285,10 @@ class GCalendar_For_Task_Manager {
 			}
 			$client = init_client( $user_id );
 			$service = new Google_Service_Calendar( $client );
-			$service->events->delete( $calendar_id, $event_id ); // supprime les évenement.
+			$event = $service->events->get( $calendar_id , $event_id );
+			if ( ! empty( $event ) ) {
+				$service->events->delete( $calendar_id, $event_id ); // supprime les évenement.
+			}
 		}
 	}
 }
